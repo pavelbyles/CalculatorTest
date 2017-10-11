@@ -4,14 +4,11 @@
  * @param {!Object} event The Cloud Functions event.
  * @param {!Function} The callback function.
  */
-exports.subscribe = function subscribe(event, callback) {
-  // The Cloud Pub/Sub Message object.
+exports.subscribe = function (event, callback) {
   const pubsubMessage = event.data;
+  const name = pubsubMessage.data ? Buffer.from(pubsubMessage.data, 'base64').toString() : 'World';
 
-  // We're just going to log the message to prove that
-  // it worked.
-  console.log(Buffer.from(pubsubMessage.data, 'base64').toString());
+  console.log(`Hello, ${name}!`);
 
-  // Don't forget to call the callback.
   callback();
 };
