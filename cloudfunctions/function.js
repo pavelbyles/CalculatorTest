@@ -4,7 +4,7 @@
  * @param {!Object} event The Cloud Functions event.
  * @param {!Function} The callback function.
  */
-exports.subscribe = function (event, callback) {
+exports.writeCalcResult = function (event, callback) {
   const pubsubMessage = event.data;
   const content = pubsubMessage.data ? Buffer.from(pubsubMessage.data, 'base64').toString() : 'World';
   const parsedContent = JSON.parse(content)
