@@ -6,7 +6,7 @@
  */
 exports.writeCalcResult = function (event, callback) {
   const pubsubMessage = event.data;
-  const content = pubsubMessage.data ? Buffer.from(pubsubMessage.data, 'base64').toString() : 'World';
+  const content = pubsubMessage.data ? Buffer.from(pubsubMessage.data, 'base64').toString() : '{"name":"World"}';
   const parsedContent = JSON.parse(content)
   console.log('Hello, %s', parsedContent.name);
 
