@@ -1,75 +1,86 @@
 package hello
 
 import (
+	"encoding/base64"
 	"fmt"
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/log"
+	"github.com/gorilla/mux"
+	pubsub "google.golang.org/api/pubsub/v1beta2"
+	"log"
 	"net/http"
-
-	"cloud.google.com/go/pubsub"
 )
 
-var (
-	PubsubClient *pubsub.Client
-)
+const ProjectName = "calculator-test-182623"
+const TopicName = "calcfinished"
 
-const PubsubTopicID = "projects/calculator-test-182623/topics/calcfinished"
+var PubsubTopicID = fullTopicName(ProjectName, TopicName)
+
+//const PubsubTopicID = "projects/calculator-test-182623/topics/calcfinished"
+
+type badRequest struct{ error }
+type notFound struct{ error }
 
 func init() {
-	http.HandleFunc("/", handler)
-}
+	r := mux.NewRouter()
+	r.HandleFunc("/addResult", errorHandler(addResultHandler)).Methods("POST")
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	client, err = configurePubSub("calculator-test-182623")
-	log.Infof("Created pubsub topic")
-	
-	fmt.Fprint(w, "Hello, from http / http handler!")
 }
+func addResultHandler(w http.ResponseWriter, r *http.Request) error {
+	result := r.FormValue("result")
 
-func configurePubsub(projectID string) (*pubsub.Client, error) {
-	ctx := context.Background()
-	client, err := pubsub.NewClient(ctx, projectID)
-	topic, _ := PubsubClient.CreateTopic(ctx, PubsubTopicID)
+	if len(result) < 1 {
+		w.WriteHeader(200)
+		return nil
+	}
+	client := &http.Client{}
+	service, err := pubsub.New(client)
 	if err != nil {
-		return nil, err
+		log.Fatalf("Unable to create PubSub service: %v", err)
 	}
 
-	// Create the topic if it doesn't exist.
-	if exists, err := client.Topic(PubsubTopicID).Exists(ctx); err != nil {
-		return nil, err
-	} else if !exists {
-		if _, err := client.CreateTopic(ctx, PubsubTopicID); err != nil {
-			return nil, err
-		}
+	_, err = service.Projects.Topics.Create(PubsubTopicID, &pubsub.Topic{}).Do()
+	if err != nil {
+		log.Fatalf("createTopic Create().Do() failed: %v", err)
 	}
-	return client, nil
+
+	pubsubMessage := &pubsub.PubsubMessage{
+		Data: base64.StdEncoding.EncodeToString([]byte(result)),
+	}
+	publishRequest := &pubsub.PublishRequest{
+		Messages: []*pubsub.PubsubMessage{pubsubMessage},
+	}
+	if _, err := service.Projects.Topics.Publish(PubsubTopicID, publishRequest).Do(); err != nil {
+		log.Fatalf("addResultHandler Publish().Do() failed: %v", err)
+	}
+
+	fmt.Fprint(w, "Published a message to the topic")
+
+	w.WriteHeader(200)
+	return nil
 }
 
-func subscribe() {
-	ctx := context.Background()
-	err := subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		var id int64
-		if err := json.Unmarshal(msg.Data, &id); err != nil {
-			log.Printf("could not decode message data: %#v", msg)
-			msg.Ack()
+func fullTopicName(proj, topic string) string {
+	return fqrn("topics", proj, topic)
+}
+
+func fqrn(res, proj, name string) string {
+	return fmt.Sprintf("projects/%s/%s/%s", proj, res, name)
+}
+
+func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := f(w, r)
+		if err == nil {
 			return
 		}
-
-		log.Printf("[ID %d] Processing.", id)
-		if err := update(id); err != nil {
-			log.Printf("[ID %d] could not update: %v", id, err)
-			msg.Nack()
-			return
+		switch err.(type) {
+		case badRequest:
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case notFound:
+			http.Error(w, "task not found", http.StatusNotFound)
+		default:
+			log.Println(err)
+			http.Error(w, "oops", http.StatusInternalServerError)
 		}
-
-		countMu.Lock()
-		count++
-		countMu.Unlock()
-
-		msg.Ack()
-		log.Printf("[ID %d] ACK", id)
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
+
 }
