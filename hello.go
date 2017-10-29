@@ -3,12 +3,19 @@ package hello
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/gorilla/mux"
-	pubsub "google.golang.org/api/pubsub/v1beta2"
+	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	"golang.org/x/oauth2/google"
+	pubsub "google.golang.org/api/pubsub/v1beta2"
+	"google.golang.org/appengine"
+	"google.golang.org/api/googleapi"
 )
 
+var templates *template.Template
 const ProjectName = "calculator-test-182623"
 const TopicName = "calcfinished"
 
@@ -21,40 +28,99 @@ type notFound struct{ error }
 
 func init() {
 	r := mux.NewRouter()
-	r.HandleFunc("/addResult", errorHandler(addResultHandler)).Methods("POST")
+	r.HandleFunc("/", errorHandler(rootHandler)).Methods("GET")
+	r.HandleFunc("/add", errorHandler(addHandler)).Methods("POST")
+	r.HandleFunc("/getLastResult", errorHandler(getPubsubMessageItemHandler)).Methods("GET")
 
+	http.Handle("/", r)
 }
-func addResultHandler(w http.ResponseWriter, r *http.Request) error {
-	result := r.FormValue("result")
 
-	if len(result) < 1 {
+func rootHandler(w http.ResponseWriter, r *http.Request) error {
+	t = template.new("root")
+	t, _ = t.Parse(addTemplate)
+	t.Execute(w)
+
+	return nil
+}
+
+func addHandler(w http.ResponseWriter, r *http.Request) error {
+	ctx := appengine.NewContext(r)
+	s1 := r.FormValue("number1")
+	s2 := r.FormValue("number2")
+
+	if len(s1) < 1 || len(s2) < 1 {
+		w.WriteHeader(500)
+		return nil
+	}
+
+	n1, err := strconv.Atoi(s1)
+	if err != nil {
+		w.WriteHeader(500)
+		fmt.Fprint(w,"Error occurred converting to number: %v", s1, err)
+		return nil
+	}
+	n2, err := strconv.Atoi(s2)
+	if err != nil {
+		w.WriteHeader(500)
+		fmt.Fprint(w,"Error occurred converting to number: %v", s2, err)
+		return nil
+	}
+	result := n1 + n2
+
+	client, err := google.DefaultClient(ctx, pubsub.PubsubScope)
+	if err != nil {
+		fmt.Fprint(w, "Unable to set default credentials: %v", err)
 		w.WriteHeader(200)
 		return nil
 	}
-	client := &http.Client{}
-	service, err := pubsub.New(client)
+
+	pubsubService, err := pubsub.New(client)
+
 	if err != nil {
-		log.Fatalf("Unable to create PubSub service: %v", err)
+		fmt.Fprint(w, "Unable to create pubsub service: %v", err)
+		w.WriteHeader(200)
+		return nil
 	}
 
-	_, err = service.Projects.Topics.Create(PubsubTopicID, &pubsub.Topic{}).Do()
+	if nil != err {
+		fmt.Fprint(w, "Unable to create OAuth2 service: %v", err)
+		w.WriteHeader(200)
+		return nil
+	}
+	_, err = pubsubService.Projects.Topics.Create(PubsubTopicID, &pubsub.Topic{}).Do()
 	if err != nil {
-		log.Fatalf("createTopic Create().Do() failed: %v", err)
+		switch t := err.(type) {
+		default:
+			fmt.Fprint(w, "createTopic Create().Do() failed: %v, %v", err, t)
+			w.WriteHeader(500)
+			return nil
+		case *googleapi.Error:
+			serr, _ := err.(*googleapi.Error)
+			if serr.Code == 409 {
+				log.Println("Topic already created ... continuing: ", err)
+			}
+		}
 	}
 
 	pubsubMessage := &pubsub.PubsubMessage{
-		Data: base64.StdEncoding.EncodeToString([]byte(result)),
+		Data: base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(result))),
 	}
 	publishRequest := &pubsub.PublishRequest{
 		Messages: []*pubsub.PubsubMessage{pubsubMessage},
 	}
-	if _, err := service.Projects.Topics.Publish(PubsubTopicID, publishRequest).Do(); err != nil {
-		log.Fatalf("addResultHandler Publish().Do() failed: %v", err)
+	if _, err := pubsubService.Projects.Topics.Publish(PubsubTopicID, publishRequest).Do(); err != nil {
+		fmt.Fprint(w, "addResultHandler Publish().Do() failed: %v", err)
+		w.WriteHeader(200)
+		return nil
 	}
 
 	fmt.Fprint(w, "Published a message to the topic")
 
 	w.WriteHeader(200)
+	return nil
+}
+
+func getPubsubMessageItemHandler(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
@@ -84,3 +150,28 @@ func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.Han
 	}
 
 }
+
+const addTemplate = `
+<html>
+<head>
+  <title>Add Page</title>
+</head>
+<body>
+  <form method="POST" action="/add">
+	<label for="number1">Number 1</label><input type="text" id="number1" /><span>+</span>
+    <label for="number2">Number 1</label><input type="text" id="number2" />
+	<input type="submit" />
+  </form>
+</body>
+</html>`
+
+const resultTemplate = `
+<html>
+<head>
+  <title>Result Page</title>
+</head>
+<body>
+  <h1>Result</h1>
+  <div>{{ . }}
+</body>
+</html>`
