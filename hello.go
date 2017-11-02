@@ -1,25 +1,28 @@
 package hello
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	pubsub "google.golang.org/api/pubsub/v1beta2"
 	"google.golang.org/appengine"
-	"google.golang.org/api/googleapi"
+	"google.golang.org/appengine/log"
 )
 
-var templates *template.Template
-const ProjectName = "calculator-test-182623"
-const TopicName = "calcfinished"
+var indexTemplate = template.Must(template.New("index").Parse(indexTemplateStr))
+var resultTemplate = template.Must(template.New("result").Parse(resultTemplateStr))
 
-var PubsubTopicID = fullTopicName(ProjectName, TopicName)
+const projectName = "calculator-test-182623"
+const topicName = "calcfinished"
+
+var pubsubTopicID = fullTopicName(projectName, topicName)
 
 //const PubsubTopicID = "projects/calculator-test-182623/topics/calcfinished"
 
@@ -36,11 +39,8 @@ func init() {
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) error {
-	t = template.new("root")
-	t, _ = t.Parse(addTemplate)
-	t.Execute(w)
-
-	return nil
+	w.Header().Set("Content-Type", "text/html")
+	return indexTemplate.Execute(w, "")
 }
 
 func addHandler(w http.ResponseWriter, r *http.Request) error {
@@ -48,79 +48,80 @@ func addHandler(w http.ResponseWriter, r *http.Request) error {
 	s1 := r.FormValue("number1")
 	s2 := r.FormValue("number2")
 
+	// set default content type
+	w.Header().Set("Content-Type", "text/html")
+
 	if len(s1) < 1 || len(s2) < 1 {
-		w.WriteHeader(500)
+		err := fmt.Sprintf("Number 1 or number 2 is blank: number1 - %v, number 2 - %v - %v", s1, s2, r.Form["number1"])
+		http.Error(w, err, http.StatusInternalServerError)
 		return nil
 	}
 
 	n1, err := strconv.Atoi(s1)
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprint(w,"Error occurred converting to number: %v", s1, err)
+		errStr := fmt.Sprintf("Error occurred converting to number: %v", s1)
+		http.Error(w, errStr, http.StatusInternalServerError)
 		return nil
 	}
 	n2, err := strconv.Atoi(s2)
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprint(w,"Error occurred converting to number: %v", s2, err)
+		errStr := fmt.Sprintf("Error occurred converting to number: %v", s2)
+		http.Error(w, errStr, http.StatusInternalServerError)
 		return nil
 	}
 	result := n1 + n2
 
+	if err = addToPubsub(ctx, pubsubTopicID, strconv.Itoa(result)); err != nil {
+		w.WriteHeader(500)
+		errStr := fmt.Sprintf("Error occurred converting to number: %v", s2)
+		http.Error(w, errStr, http.StatusInternalServerError)
+		return nil
+	}
+
+	w.WriteHeader(200)
+	return resultTemplate.Execute(w, "Published a message to the topic")
+}
+
+func addToPubsub(ctx context.Context, pubsubTopicID string, message string) error {
 	client, err := google.DefaultClient(ctx, pubsub.PubsubScope)
 	if err != nil {
-		fmt.Fprint(w, "Unable to set default credentials: %v", err)
-		w.WriteHeader(200)
-		return nil
+		return err
 	}
-
 	pubsubService, err := pubsub.New(client)
-
 	if err != nil {
-		fmt.Fprint(w, "Unable to create pubsub service: %v", err)
-		w.WriteHeader(200)
-		return nil
+		return err
 	}
-
-	if nil != err {
-		fmt.Fprint(w, "Unable to create OAuth2 service: %v", err)
-		w.WriteHeader(200)
-		return nil
-	}
-	_, err = pubsubService.Projects.Topics.Create(PubsubTopicID, &pubsub.Topic{}).Do()
+	_, err = pubsubService.Projects.Topics.Create(pubsubTopicID, &pubsub.Topic{}).Do()
 	if err != nil {
 		switch t := err.(type) {
 		default:
-			fmt.Fprint(w, "createTopic Create().Do() failed: %v, %v", err, t)
-			w.WriteHeader(500)
+			log.Errorf(ctx, "createTopic Create().Do() failed: %v, %v", err, t)
 			return nil
 		case *googleapi.Error:
 			serr, _ := err.(*googleapi.Error)
 			if serr.Code == 409 {
-				log.Println("Topic already created ... continuing: ", err)
+				log.Infof(ctx, "Topic already created ... continuing")
 			}
 		}
 	}
 
 	pubsubMessage := &pubsub.PubsubMessage{
-		Data: base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(result))),
+		Data: base64.StdEncoding.EncodeToString([]byte(message)),
 	}
 	publishRequest := &pubsub.PublishRequest{
 		Messages: []*pubsub.PubsubMessage{pubsubMessage},
 	}
-	if _, err := pubsubService.Projects.Topics.Publish(PubsubTopicID, publishRequest).Do(); err != nil {
-		fmt.Fprint(w, "addResultHandler Publish().Do() failed: %v", err)
-		w.WriteHeader(200)
+	if _, err := pubsubService.Projects.Topics.Publish(pubsubTopicID, publishRequest).Do(); err != nil {
+		log.Errorf(ctx, "addResultHandler Publish().Do() failed: %v", err)
 		return nil
 	}
-
-	fmt.Fprint(w, "Published a message to the topic")
-
-	w.WriteHeader(200)
 	return nil
 }
 
 func getPubsubMessageItemHandler(w http.ResponseWriter, r *http.Request) error {
+
 	return nil
 }
 
@@ -128,10 +129,12 @@ func fullTopicName(proj, topic string) string {
 	return fqrn("topics", proj, topic)
 }
 
+// Get fully qualified topic name
 func fqrn(res, proj, name string) string {
 	return fmt.Sprintf("projects/%s/%s/%s", proj, res, name)
 }
 
+// General error handler for requests
 func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := f(w, r)
@@ -144,28 +147,27 @@ func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.Han
 		case notFound:
 			http.Error(w, "task not found", http.StatusNotFound)
 		default:
-			log.Println(err)
 			http.Error(w, "oops", http.StatusInternalServerError)
 		}
 	}
 
 }
 
-const addTemplate = `
+const indexTemplateStr = `<!doctype html>
 <html>
 <head>
   <title>Add Page</title>
 </head>
 <body>
-  <form method="POST" action="/add">
-	<label for="number1">Number 1</label><input type="text" id="number1" /><span>+</span>
-    <label for="number2">Number 1</label><input type="text" id="number2" />
-	<input type="submit" />
+  <form id="mainForm" method="post" action="add" accept-charset="utf-8" enctype="multipart/form-data">
+	<label for="number1">Number 1:</label><input type="text" name="number1" value="1"/><span>&nbsp;+&nbsp;</span>
+    <label for="number2">Number 2:</label><input type="text" name="number2" value="2"/>
+	<input type="submit" value="Submit"/>
   </form>
 </body>
 </html>`
 
-const resultTemplate = `
+const resultTemplateStr = `<!doctype html>
 <html>
 <head>
   <title>Result Page</title>
