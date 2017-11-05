@@ -1,0 +1,25 @@
+{
+  "name": "CalculatorTest",
+  "description": "Calculates...",
+  "main": "index.js",
+  "authors": [
+    "Pavel Byles"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/pavelbyles/CalculatorTest",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "static/bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "polymer": "Polymer/polymer#^2.0.0",
+    "paper-input": "PolymerElements/paper-input#^2.0.3",
+    "paper-button": "PolymerElements/paper-button#^2.0.0",
+    "iron-form": "PolymerElements/iron-form#^2.0.1"
+  }
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/gorilla/mux"
@@ -16,13 +17,12 @@ import (
 	"google.golang.org/appengine/log"
 )
 
-var indexTemplate = template.Must(template.New("index").Parse(indexTemplateStr))
-var resultTemplate = template.Must(template.New("result").Parse(resultTemplateStr))
+var templates *template.Template
 
-const projectName = "calculator-test-182623"
-const topicName = "calcfinished"
+var projectName string
+var topicName string
 
-var pubsubTopicID = fullTopicName(projectName, topicName)
+var pubsubTopicID string
 
 //const PubsubTopicID = "projects/calculator-test-182623/topics/calcfinished"
 
@@ -30,6 +30,21 @@ type badRequest struct{ error }
 type notFound struct{ error }
 
 func init() {
+	templates = template.Must(template.
+		ParseFiles(
+			"views/layouts/main.html",
+			"views/home/result.html",
+			"views/home/index.html"))
+
+	if projectName = os.Getenv("PROJECT_NAME"); projectName == "" {
+		return
+	}
+
+	if topicName = os.Getenv("RESULT_TOPIC"); topicName == "" {
+		return
+	}
+	pubsubTopicID = fullTopicName(projectName, topicName)
+
 	r := mux.NewRouter()
 	r.HandleFunc("/", errorHandler(rootHandler)).Methods("GET")
 	r.HandleFunc("/add", errorHandler(addHandler)).Methods("POST")
@@ -40,7 +55,8 @@ func init() {
 
 func rootHandler(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Content-Type", "text/html")
-	return indexTemplate.Execute(w, "")
+	m := &indexVM{Title: "Main Index Page", PageHeading: "Calculate Result"}
+	return renderIndexTmpl(w, m)
 }
 
 func addHandler(w http.ResponseWriter, r *http.Request) error {
@@ -81,7 +97,9 @@ func addHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	w.WriteHeader(200)
-	return resultTemplate.Execute(w, "Published a message to the topic")
+	m := &resultVM{Result: strconv.Itoa(result),
+		PageHeading: "Result is!..."}
+	return renderResultTmpl(w, m)
 }
 
 func addToPubsub(ctx context.Context, pubsubTopicID string, message string) error {
@@ -147,33 +165,16 @@ func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.Han
 		case notFound:
 			http.Error(w, "task not found", http.StatusNotFound)
 		default:
-			http.Error(w, "oops", http.StatusInternalServerError)
+			http.Error(w, "oops: "+err.Error(), http.StatusInternalServerError)
 		}
 	}
 
 }
 
-const indexTemplateStr = `<!doctype html>
-<html>
-<head>
-  <title>Add Page</title>
-</head>
-<body>
-  <form id="mainForm" method="post" action="add" accept-charset="utf-8" enctype="multipart/form-data">
-	<label for="number1">Number 1:</label><input type="text" name="number1" value="1"/><span>&nbsp;+&nbsp;</span>
-    <label for="number2">Number 2:</label><input type="text" name="number2" value="2"/>
-	<input type="submit" value="Submit"/>
-  </form>
-</body>
-</html>`
+func renderIndexTmpl(w http.ResponseWriter, m *indexVM) error {
+	return templates.ExecuteTemplate(w, "index", m)
+}
 
-const resultTemplateStr = `<!doctype html>
-<html>
-<head>
-  <title>Result Page</title>
-</head>
-<body>
-  <h1>Result</h1>
-  <div>{{ . }}
-</body>
-</html>`
+func renderResultTmpl(w http.ResponseWriter, m *resultVM) error {
+	return templates.ExecuteTemplate(w, "result", m)
+}

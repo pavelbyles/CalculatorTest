@@ -1,6 +1,11 @@
 runtime: go
 api_version: go1
 
+env_variables:
+  PROJECT_NAME: 'calculator-test-182623'
+  RESULT_TOPIC: 'calcfinished'
+
+
 handlers:
 - url: /stylesheets
   static_dir: stylesheets
@@ -9,5 +14,13 @@ handlers:
   static_files: static/\1
   upload: static/.*\.(gif|png|jpg)$
 
+- url: /static
+  static_dir: static
+
 - url: /.*
   script: _go_app
+
+- url: /(.*\.html)
+  mime_type: text/html
+  static_files: static/\1
+  upload: static/(.*\.html)

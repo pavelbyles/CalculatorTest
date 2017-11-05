@@ -1,0 +1,23 @@
+{{define "header"}}
+<!DOCTYPE html PUBLIC
+    "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+  <title>{{.Title}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <script src="/static/bower_components/webcomponentsjs/webcomponents-loader.js"></script>
+
+  <link rel="import" href="/static/bower_components/polymer/polymer.html">
+  <link rel="import" href="/static/bower_components/iron-form/iron-form.html">
+  <link rel="import" href="/static/bower_components/paper-input/paper-input.html">
+  <link rel="import" href="/static/bower_components/paper-button/paper-button.html">
+</head>
+<body unresolved fullbleed layout vertical>
+{{end}}
+{{define "footer"}}
+</body>
+</html>
+{{end}}

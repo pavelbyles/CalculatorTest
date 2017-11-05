@@ -1,0 +1,25 @@
+{{define "index"}}
+{{template "header" .}}
+    <div class="page-header">
+        <h1>{{.PageHeading}}</h1>
+    </div>
+
+    <iron-form id="mainForm" allow-redirect>
+        <form method="post" action="add" accept-charset="utf-8" enctype="multipart/form-data">
+            <!-- <label for="number1">Number 1:</label><input type="text" name="number1" value="1"/><span>&nbsp;+&nbsp;</span>
+            <label for="number2">Number 2:</label><input type="text" name="number2" value="2"/> -->
+
+            <paper-input label="Number 1" name="number1"></paper-input><span>&nbsp;+&nbsp;</span>
+            <paper-input label="Number 2" name="number2"></paper-input>
+            <!-- <paper-button onclick="document.getElementById('mainForm').submit();">Submit</paper-button> -->
+            <paper-button raised onclick="submitForm()">Submit</paper-button>
+        </form>
+    </iron-form>
+
+    <script>
+        function submitForm() {
+            document.getElementById('mainForm').submit();
+        }
+    </script>
+{{template "footer" .}}
+{{end}}
